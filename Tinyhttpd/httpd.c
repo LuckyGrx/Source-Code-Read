@@ -26,7 +26,7 @@
 #include <sys/wait.h>
 #include <stdlib.h>
 // HTTP请求报文由三部分组成 (请求行 + 请求头 + 请求体)
-// 范例:请求行   POST /chapter17/user.html HTTP/1.1
+// 范例:请求行   <method> <request-URL> <version>
 //     请求头   
 //              \r\n
 //     请求体    
@@ -122,7 +122,9 @@ void* accept_request(void* client) {
             query_string++;
         // 获取 GET 方法, ? 后面的参数
         if (*query_string == '?') {
+            // 如果待有查询参数,需要执行cgi,解析参数,设置标志位为1
             cgi = 1;
+            // 将解析参数截取下来
             *query_string = '\0';
             query_string++;
         }
@@ -131,15 +133,18 @@ void* accept_request(void* client) {
     // 格式化 url 到 path 数组, html 文件都在 htdocs 中
     sprintf(path, "htdocs%s", url);
 
-    // 默认情况下为 index.html
+    // 如果path是一个目录,默认设置为该目录下的index.html
     if (path[strlen(path) - 1] == '/')
         strcat(path, "index.html");
 
+    // 函数定义: int stat(const char *file_name, struct stat *buf);
+    // 函数说明: 通过文件名获取文件信息,并报存在buf所指的结构体stat中
+    // 返回值:   执行成功返回0,失败返回-1,错误代码存在errno
     if (stat(path, &st) == -1) {
         // path路径下,找不到该文件,则收完剩余的请求报文头
         while ((numchars > 0) && strcmp("\n", buf))  /* read & discard headers */
             numchars = get_line(listenfd, buf, sizeof(buf));
-        // 回应客户端找不到该文件
+        // 回应客户端找不到该网页
         not_found(listenfd);
     } else {
         // 如果 path 是个目录,则默认使用该目录下的 index.html 文件
@@ -148,7 +153,7 @@ void* accept_request(void* client) {
         if ((st.st_mode & S_IXUSR) || (st.st_mode & S_IXGRP) || (st.st_mode & S_IXOTH))
             cgi = 1;
         if (!cgi)
-            // 不是CGI,则直接返回服务端的文件
+            // 直接返回服务端的静态网页
             serve_file(listenfd, path);
         else
             // 执行 CGI
@@ -238,8 +243,11 @@ void error_die(const char *sc) {
  * Parameters: listenfd socket descriptor
  *             path to the CGI script */
 /**********************************************************************/
+// 使用CGI动态解析浏览器的请求(请求方法是POST,或者GET带请求参数)
 void execute_cgi(int listenfd, const char *path, const char *method, const char *query_string) {
     char buf[1024];
+    // cgi_output是子进程(执行cgi的进程)的输出管道,子进程写,父进程读
+    // cgi_input是子进程(执行cgi的进程)的输入管道,父进程写,子进程读
     int cgi_output[2];
     int cgi_input[2];
     pid_t pid;
@@ -252,14 +260,18 @@ void execute_cgi(int listenfd, const char *path, const char *method, const char 
     buf[0] = 'A'; 
     buf[1] = '\0';
     if (strcasecmp(method, "GET") == 0) {
+        // 如果是GET请求,说明query_string中已经包含了请求参数
         // 读取HTTP头部剩余的部分,并丢弃
         while ((numchars > 0) && strcmp("\n", buf))  /* read & discard headers */
             numchars = get_line(listenfd, buf, sizeof(buf));
     } else {   /* POST */
         numchars = get_line(listenfd, buf, sizeof(buf));
         while ((numchars > 0) && strcmp("\n", buf)) {
+            // 如果是POST请求,需要得到Content-Length,该字符串长15位
+            // 得到请求头的一行后,将第16位设置为空字符,进行比较
             buf[15] = '\0';
             if (strcasecmp(buf, "Content-Length:") == 0)
+                // 从第17位就是content_length:请求体的长度
                 content_length = atoi(&(buf[16]));
             numchars = get_line(listenfd, buf, sizeof(buf));
         }
@@ -271,6 +283,7 @@ void execute_cgi(int listenfd, const char *path, const char *method, const char 
         }
     }
 
+    // 返回正确响应码 200 ok
     sprintf(buf, "HTTP/1.0 200 OK\r\n");
     send(listenfd, buf, strlen(buf), 0);
 
@@ -292,21 +305,28 @@ void execute_cgi(int listenfd, const char *path, const char *method, const char 
         char query_env[255];
         char length_env[255];
 
-        dup2(cgi_output[1], 1);
-        dup2(cgi_input[0], 0);
+        // CGI程序使用标准输入输出进行交互
+        dup2(cgi_output[1], 1); // 将系统标准输出重定向为cgi_output[1]
+        dup2(cgi_input[0], 0);  // 将系统标准输入重定向为cgi_input[0]
         // 关闭cgi_output的读入端
         close(cgi_output[0]);
         // 关闭cgi_input的写入端
         close(cgi_input[1]);
+        // CGI标准需要将请求方法存储在环境变量中,然后才和CGI脚本进行交互
+        // 存储 REQUEST_METHOD
         sprintf(meth_env, "REQUEST_METHOD=%s", method);
         putenv(meth_env);
         if (strcasecmp(method, "GET") == 0) {
+            // 存储 QUERY_STRING
             sprintf(query_env, "QUERY_STRING=%s", query_string);
             putenv(query_env);
         } else {   /* POST */
+            // 存储 CONTENT_LENGTH
             sprintf(length_env, "CONTENT_LENGTH=%d", content_length);
             putenv(length_env);
         }
+        // int execl(const char* path, const char* argv,...);
+        // 执行参数path所代表的CGI程序,接下来的参数代表执行该程序所传递的参数,最后一个必须以NULL结束
         execl(path, path, NULL);
         exit(0);
     } else {    // 父进程
@@ -320,7 +340,9 @@ void execute_cgi(int listenfd, const char *path, const char *method, const char 
                 write(cgi_input[1], &c, 1);
             }
         }
+        // 读取子进程(cgi脚本)返回数据
         while (read(cgi_output[0], &c, 1) > 0)
+            // 发送给浏览器
             send(listenfd, &c, 1, 0);
 
         // 关闭管道
