@@ -26,8 +26,7 @@
 #include <stdlib.h>
 #include <stdarg.h>
 
-int Socket(const char *host, int clientPort)
-{
+int Socket(const char *host, int clientPort) {
     int sock;
     unsigned long inaddr;
     struct sockaddr_in ad;

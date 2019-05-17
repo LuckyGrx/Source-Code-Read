@@ -408,7 +408,7 @@ void headers(int listenfd, const char *filename) {
     send(listenfd, buf, strlen(buf), 0);
     sprintf(buf, "Content-Type: text/html\r\n");
     send(listenfd, buf, strlen(buf), 0);
-    // 空行(CR + LF)
+    // 响应报文的 空行(CR + LF)
     strcpy(buf, "\r\n");
     send(listenfd, buf, strlen(buf), 0);
 }
