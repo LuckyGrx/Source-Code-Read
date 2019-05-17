@@ -25,7 +25,11 @@
 #include <pthread.h>
 #include <sys/wait.h>
 #include <stdlib.h>
-
+// HTTP请求报文由三部分组成 (请求行 + 请求头 + 请求体)
+// 范例:请求行   POST /chapter17/user.html HTTP/1.1
+//     请求头   
+//              \r\n
+//     请求体    
 // 宏定义,判断是否空格
 #define ISspace(x) isspace((int)(x))
 
@@ -111,9 +115,12 @@ void* accept_request(void* client) {
 
     // 处理请求方法 GET
     if (strcasecmp(method, "GET") == 0) {
+        // 
         query_string = url;
+        // 跳过 url ?前面的部分,去获取? 后面的参数
         while ((*query_string != '?') && (*query_string != '\0'))
             query_string++;
+        // 获取 GET 方法, ? 后面的参数
         if (*query_string == '?') {
             cgi = 1;
             *query_string = '\0';
